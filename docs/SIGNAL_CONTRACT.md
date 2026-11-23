@@ -56,3 +56,9 @@ profile.
   strong.
 - Conflicting candlestick and indicator signals: no alert, or an explicit
   `HOLD / CONFLICT` message.
+
+## Source policy
+
+Candlestick rules are implemented independently from publicly described
+technical-analysis concepts. The project cites educational sources in
+`SOURCES.md` but does not include copyrighted book text, scans, or images.
