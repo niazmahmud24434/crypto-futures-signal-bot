@@ -16,6 +16,9 @@ Manual-only Binance Futures signal engine with Telegram alerts.
 - Entry zone, stop-loss, TP1, TP2, and risk/reward
 - Telegram delivery through `@McMeshubot`
 - Crypto Time Machine decision-support module (planned after the backtester)
+- Market regime header: `UP`, `HOLD`, or `DOWN` before every pair signal
+- Price and percentage-based entry, stop, target, and invalidation levels
+- Candlestick pattern double-checks, validated against Binance data rather than textbook claims
 - Manual execution only; no Binance API key or secret is required
 
 ## Safety boundary
@@ -61,6 +64,7 @@ ruff format --check .
 - `data/` — ignored runtime and market data
 - `docs/` — architecture, strategy, and operations documentation
 - `ATTRIBUTION.md` — credit for the stock day-trader project that inspired the workflow separation
+- `SOURCES.md` — books, public references, and candlestick research acknowledgements
 
 ## License
 

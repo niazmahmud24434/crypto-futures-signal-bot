@@ -12,3 +12,7 @@ copy the original stock-market data sources, broker integration, or stock-only
 strategies. The crypto market-data layer, strategy engine, risk rules, tests,
 and Telegram delivery are being implemented independently for Binance Futures
 public market data and manual signal delivery.
+
+Candlestick concepts will be implemented as original, testable rules using
+public educational references. No copyrighted book text, scans, or chart
+images will be included in this repository.

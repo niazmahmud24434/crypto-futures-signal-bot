@@ -47,3 +47,10 @@ assumptions, funding costs, long/short results, and a sample-size warning.
 4. Duplicate signals are idempotent and do not spam Telegram.
 5. Network failures produce a health event, never a fabricated signal.
 6. Generated data, logs, and secrets stay outside Git.
+
+## Backtest and Time Machine relationship
+
+`backtest.py` owns conservative stop-first outcome evaluation and performance
+statistics. The planned Time Machine will call this same outcome contract for
+historical replay and simulated paths. This prevents the live report,
+backtester, and Time Machine from silently using different stop/target rules.
