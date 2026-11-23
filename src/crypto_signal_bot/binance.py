@@ -68,18 +68,63 @@ class BinancePublicClient:
             raise BinanceDataError("Binance returned an unexpected ticker response")
         return [item for item in raw if isinstance(item, dict)]
 
-    def top_usdt_pairs(self, limit: int = 20, excluded_bases: tuple[str, ...] = ()) -> list[str]:
+    def exchange_info(self) -> dict[str, dict[str, object]]:
+        """Symbol metadata, including the authoritative underlying asset class."""
+
+        raw = self._get("/fapi/v1/exchangeInfo")
+        if not isinstance(raw, dict) or not isinstance(raw.get("symbols"), list):
+            raise BinanceDataError("Binance returned an unexpected exchange-info response")
+        return {
+            str(item.get("symbol")): item
+            for item in raw["symbols"]
+            if isinstance(item, dict) and item.get("symbol")
+        }
+
+    def crypto_usdt_perpetuals(self) -> set[str]:
+        """Tradable crypto USDT perpetuals, excluding tokenized TradFi products.
+
+        Binance tags crypto contracts with ``underlyingType: COIN``. Tokenized
+        equities and commodities use ``TRADIFI_PERPETUAL`` contracts with
+        ``EQUITY``, ``COMMODITY`` or ``INDEX`` underlyings, so filtering on the
+        published metadata is safer than maintaining a name blacklist.
+        """
+
+        return {
+            symbol
+            for symbol, item in self.exchange_info().items()
+            if str(item.get("contractType")) == "PERPETUAL"
+            and str(item.get("quoteAsset")) == "USDT"
+            and str(item.get("status")) == "TRADING"
+            and str(item.get("underlyingType", "COIN")) == "COIN"
+        }
+
+    def top_usdt_pairs(
+        self,
+        limit: int = 20,
+        excluded_bases: tuple[str, ...] = (),
+        crypto_only: bool = True,
+    ) -> list[str]:
         """Choose liquid USDT perpetuals without any private account access."""
 
+        allowed: set[str] | None = None
+        if crypto_only:
+            try:
+                allowed = self.crypto_usdt_perpetuals()
+            except BinanceDataError:
+                allowed = None
+
+        excluded = {base.upper() for base in excluded_bases}
         pairs: list[tuple[str, float]] = []
         for item in self.ticker_24h():
             symbol = str(item.get("symbol", ""))
-            if not symbol.endswith("USDT") or not bool(item.get("symbol")):
+            if not symbol.endswith("USDT"):
                 continue
-            if symbol[:-4] in set(excluded_bases):
+            if symbol[:-4] in excluded:
+                continue
+            if allowed is not None and symbol not in allowed:
                 continue
             try:
-                quote_volume = float(item.get("quoteVolume", 0))
+                quote_volume = float(item.get("quoteVolume", 0))  # type: ignore[arg-type]
             except (TypeError, ValueError):
                 continue
             pairs.append((symbol, quote_volume))

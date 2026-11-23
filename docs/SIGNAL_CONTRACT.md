@@ -1,61 +1,78 @@
 # Telegram signal contract
 
-Every Telegram alert must begin with the broader market view before showing a
+Every Telegram alert begins with the broader market view before showing a
 pair-specific trade idea.
 
 ## Market header
 
 ```text
 MARKET: UP / HOLD / DOWN
-Market confidence: 0–100%
-Market horizon: 15m / 1h / 4h
-Market basis: BTC trend, breadth, volume, funding, open interest
+Confidence: 0–100%
+Horizon: 1h/4h
+Basis:
+• BTC 1h EMA alignment bullish
+• BTC 4h MACD positive
 ```
 
-`UP`, `HOLD`, and `DOWN` describe the measured market regime, not a promise
-that the next candle will move in that direction.
+`UP`, `HOLD`, and `DOWN` describe the measured market regime, not a promise that
+the next candle will move in that direction. `UP` and `DOWN` require the 1h and
+4h evidence to agree; otherwise the regime is `HOLD`.
 
 ## Trade section
 
 ```text
 PAIR: BTCUSDT
-SIDE: LONG / SHORT
-ENTRY: 33.50–33.65 USDT
-STOP-LOSS: 32.95 USDT (-1.55%)
-TP1: 34.30 USDT (+2.25%)
-TP2: 35.10 USDT (+4.63%)
-R:R to TP1: 1:1.45
-SIGNAL SCORE: 4/6
+SIDE: LONG
+TIMEFRAME: 15m entry / 1h confirmation
+ENTRY ZONE: 33.5000 – 33.6500 USDT
+STOP-LOSS: 32.9500 USDT (-1.55%)
+TP1: 34.3000 USDT (+2.25%)
+TP2: 35.1000 USDT (+4.63%)
+R:R: TP1 1:1.45 · TP2 1:2.99
+SCORE: 4/5 confirmations
 ```
 
-The bot will show both absolute prices and percentages. “Exit” is not a single
-blind price: TP1, TP2, stop-loss, timeout, and invalidation are all explicit.
+Percentages are signed from the entry-zone midpoint and inverted for shorts, so
+a negative percentage always means risk. "Exit" is never a single blind price:
+TP1, TP2, stop-loss, inversion, and a 24-hour time stop are all explicit.
 
 ## Confirmation section
 
 ```text
-INDICATORS:
-✓ EMA 9/21/50 alignment
-✓ RSI condition
-✓ MACD condition
-✓ ATR and volume filter
-✓ 1h confirmation
-✓ Candlestick double-check: bullish engulfing
+CONFIRMATIONS
+• 15m EMA 9/21/50 bullish alignment
+• 15m RSI 61.2 supports upside
+• 15m MACD histogram positive
+• 1h trend confirmation bullish
+• 15m volume at or above 20-candle average
+• Candlestick double-check: bullish_engulfing
 ```
 
-Candlestick patterns add context only after a closed candle. They cannot
-override missing market data, a stale candle, bad liquidity, or an invalid risk
-profile.
+Candlestick patterns add context only after a closed candle. They cannot create
+a signal, and they cannot override missing market data, a stale candle, bad
+liquidity, or an invalid risk profile.
 
 ## Conflict handling
 
 - Market `UP` + pair `LONG`: normal alignment.
-- Market `DOWN` + pair `LONG`: counter-trend warning; normally blocked or given
-  a much higher threshold.
-- Market `HOLD`: no aggressive signal unless local confirmation is unusually
-  strong.
-- Conflicting candlestick and indicator signals: no alert, or an explicit
-  `HOLD / CONFLICT` message.
+- Market `DOWN` + pair `LONG`: blocked as counter-trend while
+  `BLOCK_COUNTER_TREND=true`.
+- Market `HOLD`: requires one confirmation above `MIN_SIGNAL_SCORE`.
+- Opposing closed-candle pattern: no alert.
+- Same pair, side, and closed candle: delivered once only.
+- Same pair and side inside `SIGNAL_COOLDOWN_MINUTES`: suppressed.
+
+## Implementation mapping
+
+| Field | Source |
+| --- | --- |
+| Market regime | `context.market_context` (BTC 1h + 4h) |
+| Confirmations | `strategy.build_signal` (5 possible) |
+| Entry zone | Last closed 15m close ± 0.25 ATR |
+| Stop-loss | 1.3 ATR against the idea |
+| TP1 / TP2 | 2.0 ATR / 4.0 ATR in favour |
+| Candlestick check | `context.candlestick_patterns` + `pattern_bias` |
+| Duplicate key | pair + side + timeframe + entry candle open time |
 
 ## Source policy
 

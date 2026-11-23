@@ -24,44 +24,92 @@ class MarketContext:
     reasons: tuple[str, ...]
 
 
-def market_context(btc_candles: pd.DataFrame, timeframe: str = "1h/4h") -> MarketContext:
-    """Classify the broad BTC regime using closed-candle trend and participation."""
+#: Directional weight of each independently implemented pattern. Patterns are a
+#: double-check layer only; no pattern can create a signal on its own.
+PATTERN_BIAS: dict[str, int] = {
+    "hammer": 1,
+    "bullish_engulfing": 1,
+    "morning_star_candidate": 1,
+    "shooting_star": -1,
+    "bearish_engulfing": -1,
+    "evening_star_candidate": -1,
+    "doji": 0,
+}
 
-    frame = add_indicators(btc_candles)
-    if len(frame) < 60:
-        return MarketContext(MarketRegime.HOLD, 0, timeframe, ("Insufficient closed BTC candles",))
+
+def _evidence(frame: pd.DataFrame, label: str) -> tuple[int, int, list[str]]:
+    """Return bullish and bearish evidence counts for one closed-candle frame."""
+
     row = frame.iloc[-1]
-    bullish = 0
-    bearish = 0
+    bullish = bearish = 0
     reasons: list[str] = []
     if row["ema_9"] > row["ema_21"] > row["ema_50"]:
         bullish += 1
-        reasons.append("BTC EMA alignment bullish")
+        reasons.append(f"BTC {label} EMA alignment bullish")
     elif row["ema_9"] < row["ema_21"] < row["ema_50"]:
         bearish += 1
-        reasons.append("BTC EMA alignment bearish")
+        reasons.append(f"BTC {label} EMA alignment bearish")
     if row["macd_hist"] > 0:
         bullish += 1
-        reasons.append("BTC MACD positive")
+        reasons.append(f"BTC {label} MACD positive")
     elif row["macd_hist"] < 0:
         bearish += 1
-        reasons.append("BTC MACD negative")
+        reasons.append(f"BTC {label} MACD negative")
     if row["rsi_14"] >= 55:
         bullish += 1
-        reasons.append("BTC RSI supports upside")
+        reasons.append(f"BTC {label} RSI supports upside")
     elif row["rsi_14"] <= 45:
         bearish += 1
-        reasons.append("BTC RSI supports downside")
-    if row["volume_ratio"] >= 1:
-        reasons.append("BTC volume is not below its average")
-    score = max(bullish, bearish)
-    if bullish >= 2 and bullish > bearish:
-        return MarketContext(MarketRegime.UP, min(95, 50 + score * 15), timeframe, tuple(reasons))
-    if bearish >= 2 and bearish > bullish:
-        return MarketContext(MarketRegime.DOWN, min(95, 50 + score * 15), timeframe, tuple(reasons))
-    return MarketContext(
-        MarketRegime.HOLD, 50, timeframe, tuple(reasons) or ("Mixed market evidence",)
-    )
+        reasons.append(f"BTC {label} RSI supports downside")
+    return bullish, bearish, reasons
+
+
+def market_context(
+    btc_candles: pd.DataFrame,
+    btc_candles_4h: pd.DataFrame | None = None,
+    timeframe: str = "1h/4h",
+) -> MarketContext:
+    """Classify the broad BTC regime from closed 1h and, when supplied, 4h candles.
+
+    The regime describes measured conditions. It is not a forecast, and it never
+    replaces the pair-level confirmation checks.
+    """
+
+    frame_1h = add_indicators(btc_candles)
+    if len(frame_1h) < 60:
+        return MarketContext(
+            MarketRegime.HOLD, 0, timeframe, ("Insufficient closed 1h BTC candles",)
+        )
+
+    bullish_1h, bearish_1h, reasons = _evidence(frame_1h, "1h")
+
+    frame_4h = add_indicators(btc_candles_4h) if btc_candles_4h is not None else None
+    if frame_4h is None or len(frame_4h) < 60:
+        reasons.append("4h trend unavailable; regime uses 1h only")
+        score = max(bullish_1h, bearish_1h)
+        if bullish_1h >= 2 and bullish_1h > bearish_1h:
+            return MarketContext(
+                MarketRegime.UP, min(90, 45 + score * 15), timeframe, tuple(reasons)
+            )
+        if bearish_1h >= 2 and bearish_1h > bullish_1h:
+            return MarketContext(
+                MarketRegime.DOWN, min(90, 45 + score * 15), timeframe, tuple(reasons)
+            )
+        return MarketContext(
+            MarketRegime.HOLD, 50, timeframe, tuple(reasons) or ("Mixed market evidence",)
+        )
+
+    bullish_4h, bearish_4h, reasons_4h = _evidence(frame_4h, "4h")
+    reasons.extend(reasons_4h)
+
+    if bullish_1h >= 2 and bullish_4h >= 2 and bullish_1h > bearish_1h and bullish_4h > bearish_4h:
+        confidence = min(95, 40 + (bullish_1h + bullish_4h) * 10)
+        return MarketContext(MarketRegime.UP, confidence, timeframe, tuple(reasons))
+    if bearish_1h >= 2 and bearish_4h >= 2 and bearish_1h > bullish_1h and bearish_4h > bullish_4h:
+        confidence = min(95, 40 + (bearish_1h + bearish_4h) * 10)
+        return MarketContext(MarketRegime.DOWN, confidence, timeframe, tuple(reasons))
+    reasons.append("BTC 1h and 4h trends do not agree")
+    return MarketContext(MarketRegime.HOLD, 50, timeframe, tuple(reasons))
 
 
 def candlestick_patterns(candles: pd.DataFrame) -> tuple[str, ...]:
@@ -127,3 +175,31 @@ def candlestick_patterns(candles: pd.DataFrame) -> tuple[str, ...]:
     ):
         patterns.append("evening_star_candidate")
     return tuple(patterns)
+
+
+def pattern_bias(patterns: tuple[str, ...]) -> int:
+    """Sum directional pattern weights; zero means neutral or no patterns."""
+
+    return sum(PATTERN_BIAS.get(pattern, 0) for pattern in patterns)
+
+
+def pattern_conflicts(patterns: tuple[str, ...], side: str) -> bool:
+    """Return True when closed-candle patterns oppose the requested side."""
+
+    bias = pattern_bias(patterns)
+    if str(side).upper() == "LONG":
+        return bias < 0
+    return bias > 0
+
+
+def pattern_label(patterns: tuple[str, ...], side: str) -> str:
+    """Human-readable pattern verdict used in the confirmation section."""
+
+    bias = pattern_bias(patterns)
+    if not patterns:
+        return "no classic pattern on the last closed candle"
+    aligned = (str(side).upper() == "LONG" and bias > 0) or (
+        str(side).upper() == "SHORT" and bias < 0
+    )
+    verdict = "aligned" if aligned else "neutral" if bias == 0 else "conflicting"
+    return f"{', '.join(patterns)} ({verdict})"
