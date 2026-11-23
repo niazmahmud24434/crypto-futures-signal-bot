@@ -47,6 +47,7 @@ assumptions, funding costs, long/short results, and a sample-size warning.
 4. Duplicate signals are idempotent and do not spam Telegram.
 5. Network failures produce a health event, never a fabricated signal.
 6. Generated data, logs, and secrets stay outside Git.
+7. A signal is journaled before delivery and deduplicated by fingerprint.
 
 ## Backtest and Time Machine relationship
 

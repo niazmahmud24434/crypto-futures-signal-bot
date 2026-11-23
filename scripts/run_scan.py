@@ -9,8 +9,9 @@ import sys
 
 from crypto_signal_bot.binance import BinancePublicClient
 from crypto_signal_bot.config import get_settings
+from crypto_signal_bot.journal import SignalJournal
 from crypto_signal_bot.reporting import format_report
-from crypto_signal_bot.scanner import scan
+from crypto_signal_bot.scanner import ScanReport, scan
 from crypto_signal_bot.telegram_client import send_message
 
 
@@ -27,7 +28,11 @@ def main() -> int:
         settings.binance_futures_base_url, settings.request_timeout_seconds
     )
     report = scan(client, settings)
-    text = format_report(report)
+    journal = SignalJournal()
+    fresh_pairs = tuple(
+        pair for pair in report.pairs if pair.signal is None or journal.record(pair.signal)
+    )
+    text = format_report(ScanReport(report.market, fresh_pairs))
     print(text)
     if args.telegram:
         send_message(settings.telegram_bot_token, settings.telegram_chat_id, text)
