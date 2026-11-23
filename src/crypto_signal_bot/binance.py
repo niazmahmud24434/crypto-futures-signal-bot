@@ -68,13 +68,15 @@ class BinancePublicClient:
             raise BinanceDataError("Binance returned an unexpected ticker response")
         return [item for item in raw if isinstance(item, dict)]
 
-    def top_usdt_pairs(self, limit: int = 20) -> list[str]:
+    def top_usdt_pairs(self, limit: int = 20, excluded_bases: tuple[str, ...] = ()) -> list[str]:
         """Choose liquid USDT perpetuals without any private account access."""
 
         pairs: list[tuple[str, float]] = []
         for item in self.ticker_24h():
             symbol = str(item.get("symbol", ""))
             if not symbol.endswith("USDT") or not bool(item.get("symbol")):
+                continue
+            if symbol[:-4] in set(excluded_bases):
                 continue
             try:
                 quote_volume = float(item.get("quoteVolume", 0))

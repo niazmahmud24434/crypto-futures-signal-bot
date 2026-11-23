@@ -21,6 +21,11 @@ Manual-only Binance Futures signal engine with Telegram alerts.
 - Candlestick pattern double-checks, validated against Binance data rather than textbook claims
 - Manual execution only; no Binance API key or secret is required
 
+Top-volume discovery applies a conservative non-crypto product exclusion list.
+Binance Futures can list tokenized stocks, commodities, and indices alongside
+crypto perpetuals; the exclusion list will be expanded and validated before
+Telegram delivery is enabled.
+
 ## Safety boundary
 
 This software intentionally uses Binance public endpoints. There is no order
@@ -54,6 +59,19 @@ Run checks:
 pytest
 ruff check .
 ruff format --check .
+```
+
+Run one console-only scan (no Binance credentials required):
+
+```powershell
+\.venv\Scripts\python.exe scripts\run_scan.py
+```
+
+To send the same report to Telegram, configure the local `.env` first and
+explicitly use:
+
+```powershell
+\.venv\Scripts\python.exe scripts\run_scan.py --telegram
 ```
 
 ## Project map

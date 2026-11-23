@@ -51,7 +51,7 @@ def scan(client: BinancePublicClient, settings: Settings) -> ScanReport:
     btc_confirmation = _closed(client, "BTCUSDT", settings.confirmation_timeframe)
     market = market_context(btc_confirmation)
     pairs = list(settings.pairs)
-    for pair in client.top_usdt_pairs(limit=20):
+    for pair in client.top_usdt_pairs(limit=20, excluded_bases=settings.excluded_top_volume_bases):
         if pair not in pairs:
             pairs.append(pair)
     results = tuple(scan_pair(client, pair, settings) for pair in pairs)

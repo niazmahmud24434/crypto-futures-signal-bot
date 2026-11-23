@@ -21,6 +21,23 @@ class Settings(BaseSettings):
     confirmation_timeframe: str = "1h"
 
     pairs: tuple[str, ...] = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "TAOUSDT", "LINKUSDT")
+    excluded_top_volume_bases: tuple[str, ...] = (
+        "NVDA",
+        "SOXL",
+        "SOXS",
+        "XAU",
+        "XAG",
+        "QQQ",
+        "SPX",
+        "SPY",
+        "MU",
+        "ANT",
+        "CL",
+        "SPCX",
+        "SKHYNIX",
+        "SKHY",
+        "KORU",
+    )
 
 
 @lru_cache(maxsize=1)
