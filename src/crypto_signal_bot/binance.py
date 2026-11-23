@@ -2,15 +2,62 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pandas as pd
 
+INTERVAL_MINUTES: dict[str, int] = {
+    "1m": 1,
+    "3m": 3,
+    "5m": 5,
+    "15m": 15,
+    "30m": 30,
+    "1h": 60,
+    "2h": 120,
+    "4h": 240,
+    "6h": 360,
+    "8h": 480,
+    "12h": 720,
+    "1d": 1440,
+}
+
+KLINE_COLUMNS = [
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "close_time",
+    "quote_volume",
+    "trade_count",
+    "taker_buy_volume",
+    "taker_buy_quote_volume",
+    "ignore",
+]
+
 
 class BinanceDataError(RuntimeError):
     """Raised when public market data cannot be trusted or retrieved."""
+
+
+def interval_minutes(interval: str) -> int:
+    try:
+        return INTERVAL_MINUTES[interval]
+    except KeyError as exc:
+        raise ValueError(f"unsupported interval: {interval}") from exc
+
+
+def frame_from_klines(raw: list[list[object]]) -> pd.DataFrame:
+    frame = pd.DataFrame(raw, columns=KLINE_COLUMNS)
+    for column in ("open", "high", "low", "close", "volume"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame["open_time"] = pd.to_datetime(frame["open_time"], unit="ms", utc=True)
+    frame["close_time"] = pd.to_datetime(frame["close_time"], unit="ms", utc=True)
+    return frame
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,26 +88,57 @@ class BinancePublicClient:
         )
         if not isinstance(raw, list):
             raise BinanceDataError("Binance returned an unexpected kline response")
-        columns = [
-            "open_time",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "close_time",
-            "quote_volume",
-            "trade_count",
-            "taker_buy_volume",
-            "taker_buy_quote_volume",
-            "ignore",
-        ]
-        frame = pd.DataFrame(raw, columns=columns)
-        for column in ("open", "high", "low", "close", "volume"):
-            frame[column] = pd.to_numeric(frame[column], errors="coerce")
-        frame["open_time"] = pd.to_datetime(frame["open_time"], unit="ms", utc=True)
-        frame["close_time"] = pd.to_datetime(frame["close_time"], unit="ms", utc=True)
-        return frame
+        return frame_from_klines(raw)
+
+    def klines_history(
+        self,
+        symbol: str,
+        interval: str,
+        start: datetime,
+        end: datetime | None = None,
+        pause_seconds: float = 0.15,
+    ) -> pd.DataFrame:
+        """Page historical klines forward from ``start`` to ``end``.
+
+        Binance caps a response at 1500 candles, so multi-week 15m history needs
+        several requests. Rows are de-duplicated and sorted by open time.
+        """
+
+        minutes = interval_minutes(interval)
+        stop = end or datetime.now(UTC)
+        cursor = start.astimezone(UTC)
+        frames: list[pd.DataFrame] = []
+        while cursor < stop:
+            raw = self._get(
+                "/fapi/v1/klines",
+                {
+                    "symbol": symbol.upper(),
+                    "interval": interval,
+                    "startTime": int(cursor.timestamp() * 1000),
+                    "endTime": int(stop.timestamp() * 1000),
+                    "limit": 1500,
+                },
+            )
+            if not isinstance(raw, list) or not raw:
+                break
+            chunk = frame_from_klines(raw)
+            frames.append(chunk)
+            last_open = chunk.iloc[-1]["open_time"].to_pydatetime()
+            if last_open <= cursor:
+                break
+            cursor = last_open + timedelta(minutes=minutes)
+            if len(raw) < 1500:
+                break
+            time.sleep(pause_seconds)
+        if not frames:
+            return frame_from_klines([])
+        combined = (
+            pd.concat(frames, ignore_index=True)
+            .drop_duplicates(subset="open_time")
+            .sort_values("open_time")
+            .reset_index(drop=True)
+        )
+        return combined
 
     def ticker_24h(self) -> list[dict[str, object]]:
         raw = self._get("/fapi/v1/ticker/24hr")

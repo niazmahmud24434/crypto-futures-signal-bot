@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from .binance import BinanceDataError, BinancePublicClient, drop_forming_candle
+from .binance import BinanceDataError, BinancePublicClient, drop_forming_candle, interval_minutes
 from .config import Settings
 from .context import (
     MarketContext,
@@ -20,21 +20,6 @@ from .context import (
 )
 from .models import Side, Signal
 from .strategy import build_signal
-
-_INTERVAL_MINUTES: dict[str, int] = {
-    "1m": 1,
-    "3m": 3,
-    "5m": 5,
-    "15m": 15,
-    "30m": 30,
-    "1h": 60,
-    "2h": 120,
-    "4h": 240,
-    "6h": 360,
-    "8h": 480,
-    "12h": 720,
-    "1d": 1440,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +62,10 @@ def _closed(
     frame = drop_forming_candle(client.klines(pair, interval, limit), now=now)
     if len(frame) < 60:
         raise BinanceDataError(f"{pair} {interval}: not enough closed candles")
-    minutes = _INTERVAL_MINUTES.get(interval)
+    try:
+        minutes: int | None = interval_minutes(interval)
+    except ValueError:
+        minutes = None
     if minutes is not None:
         last_close = frame.iloc[-1]["close_time"]
         current = now or datetime.now(UTC)
@@ -89,7 +77,7 @@ def _closed(
     return frame
 
 
-def _gate(signal: Signal, market: MarketContext | None, settings: Settings) -> str | None:
+def gate_signal(signal: Signal, market: MarketContext | None, settings: Settings) -> str | None:
     """Return a human-readable block reason, or None when the idea may alert."""
 
     if market is None:
@@ -99,9 +87,40 @@ def _gate(signal: Signal, market: MarketContext | None, settings: Settings) -> s
             return f"counter-trend short against market {market.regime.value}"
         if market.regime is MarketRegime.DOWN and signal.side is Side.LONG:
             return f"counter-trend long against market {market.regime.value}"
-    if market.regime is MarketRegime.HOLD and signal.score < settings.min_signal_score + 1:
-        return "market HOLD needs one extra confirmation"
+    if market.regime is MarketRegime.HOLD:
+        if settings.require_regime_alignment:
+            return "market HOLD: regime alignment required"
+        if signal.score < settings.min_signal_score + 1:
+            return "market HOLD needs one extra confirmation"
     return None
+
+
+def finalize_signal(
+    signal: Signal,
+    patterns: tuple[str, ...],
+    market: MarketContext | None,
+    settings: Settings,
+) -> tuple[Signal | None, str | None]:
+    """Apply the live gates to a candidate signal.
+
+    Shared by the scanner and the backtester so historical results cannot drift
+    from live behaviour.
+    """
+
+    blocked = gate_signal(signal, market, settings)
+    if blocked:
+        return None, blocked
+    if pattern_conflicts(patterns, signal.side.value):
+        return None, f"candlestick conflict: {', '.join(patterns)}"
+    if patterns and pattern_label(patterns, signal.side.value).endswith("(aligned)"):
+        signal = replace(
+            signal,
+            reasons=(*signal.reasons, f"Candlestick double-check: {', '.join(patterns)}"),
+            patterns=patterns,
+        )
+    else:
+        signal = replace(signal, patterns=patterns)
+    return signal, None
 
 
 def scan_pair(
@@ -127,6 +146,9 @@ def scan_pair(
             confirmation,
             settings.min_signal_score,
             market_regime=market.regime.value if market else "HOLD",
+            stop_atr=settings.stop_atr_mult,
+            tp1_atr=settings.tp1_atr_mult,
+            tp2_atr=settings.tp2_atr_mult,
         )
     except Exception as exc:  # noqa: BLE001 - scanner must report per-pair failures
         return PairScan(pair, None, (), error=str(exc))
@@ -134,27 +156,10 @@ def scan_pair(
     if signal is None:
         return PairScan(pair, None, patterns)
 
-    blocked = _gate(signal, market, settings)
-    if blocked:
+    finalized, blocked = finalize_signal(signal, patterns, market, settings)
+    if finalized is None:
         return PairScan(pair, None, patterns, blocked=blocked)
-
-    if pattern_conflicts(patterns, signal.side.value):
-        return PairScan(
-            pair,
-            None,
-            patterns,
-            blocked=f"candlestick conflict: {', '.join(patterns)}",
-        )
-
-    if patterns and pattern_label(patterns, signal.side.value).endswith("(aligned)"):
-        signal = replace(
-            signal,
-            reasons=(*signal.reasons, f"Candlestick double-check: {', '.join(patterns)}"),
-            patterns=patterns,
-        )
-    else:
-        signal = replace(signal, patterns=patterns)
-    return PairScan(pair, signal, patterns)
+    return PairScan(pair, finalized, patterns)
 
 
 def scan(

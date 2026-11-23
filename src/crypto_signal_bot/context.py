@@ -68,14 +68,17 @@ def market_context(
     btc_candles: pd.DataFrame,
     btc_candles_4h: pd.DataFrame | None = None,
     timeframe: str = "1h/4h",
+    *,
+    prepared: bool = False,
 ) -> MarketContext:
     """Classify the broad BTC regime from closed 1h and, when supplied, 4h candles.
 
     The regime describes measured conditions. It is not a forecast, and it never
-    replaces the pair-level confirmation checks.
+    replaces the pair-level confirmation checks. ``prepared=True`` skips indicator
+    calculation; the caller must have run :func:`add_indicators` already.
     """
 
-    frame_1h = add_indicators(btc_candles)
+    frame_1h = btc_candles if prepared else add_indicators(btc_candles)
     if len(frame_1h) < 60:
         return MarketContext(
             MarketRegime.HOLD, 0, timeframe, ("Insufficient closed 1h BTC candles",)
@@ -83,7 +86,9 @@ def market_context(
 
     bullish_1h, bearish_1h, reasons = _evidence(frame_1h, "1h")
 
-    frame_4h = add_indicators(btc_candles_4h) if btc_candles_4h is not None else None
+    frame_4h = None
+    if btc_candles_4h is not None:
+        frame_4h = btc_candles_4h if prepared else add_indicators(btc_candles_4h)
     if frame_4h is None or len(frame_4h) < 60:
         reasons.append("4h trend unavailable; regime uses 1h only")
         score = max(bullish_1h, bearish_1h)

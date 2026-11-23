@@ -35,7 +35,7 @@ def test_hold_regime_needs_extra_confirmation() -> None:
     from crypto_signal_bot.config import Settings
     from crypto_signal_bot.context import MarketContext
     from crypto_signal_bot.models import Side, Signal
-    from crypto_signal_bot.scanner import _gate
+    from crypto_signal_bot.scanner import gate_signal
 
     signal = Signal(
         pair="ETHUSDT",
@@ -52,4 +52,4 @@ def test_hold_regime_needs_extra_confirmation() -> None:
     )
     hold = MarketContext(MarketRegime.HOLD, 50, "1h/4h", ("mixed",))
     settings = Settings(min_signal_score=3)
-    assert _gate(signal, hold, settings) == "market HOLD needs one extra confirmation"
+    assert gate_signal(signal, hold, settings) == "market HOLD needs one extra confirmation"

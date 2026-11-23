@@ -23,13 +23,14 @@ def make_candles(
 
     minutes = INTERVAL_MINUTES[interval]
     close = start + np.arange(count, dtype=float) * slope
+    span = np.maximum(np.abs(slope) * 0.6, np.abs(close) * 0.002)
     open_time = [end - timedelta(minutes=minutes * (count - index)) for index in range(count)]
     return pd.DataFrame(
         {
             "open_time": pd.to_datetime(open_time, utc=True),
             "open": close,
-            "high": close + max(abs(slope) * 0.6, 0.2),
-            "low": close - max(abs(slope) * 0.6, 0.2),
+            "high": close + span,
+            "low": close - span,
             "close": close,
             "volume": [200.0] * count,
             "close_time": pd.to_datetime(open_time, utc=True)
@@ -60,6 +61,21 @@ class FakeBinance:
         return make_candles(
             count=min(limit, 200), start=start, slope=slope, interval=interval, end=self.now
         )
+
+    def klines_history(
+        self,
+        symbol: str,
+        interval: str,
+        start: datetime,
+        end: datetime | None = None,
+        pause_seconds: float | None = None,
+    ) -> pd.DataFrame:
+        minutes = INTERVAL_MINUTES[interval]
+        stop = end or self.now
+        count = max(60, int((stop - start).total_seconds() // 60 // minutes))
+        slope = self.slopes.get(symbol.upper(), self.default_slope)
+        origin = 100.0 if slope >= 0 else 100.0 + abs(slope) * count
+        return make_candles(count=count, start=origin, slope=slope, interval=interval, end=stop)
 
     def top_usdt_pairs(self, limit: int = 20, excluded_bases: tuple[str, ...] = ()) -> list[str]:
         return []

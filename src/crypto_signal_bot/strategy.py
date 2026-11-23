@@ -9,7 +9,7 @@ import pandas as pd
 from .indicators import add_indicators
 from .models import Side, Signal
 
-#: Risk model, expressed in ATR multiples. Entry zone is centred on the close.
+#: Default risk model, expressed in ATR multiples. Overridable via settings.
 STOP_ATR = 1.3
 TP1_ATR = 2.0
 TP2_ATR = 4.0
@@ -71,15 +71,21 @@ def build_signal(
     confirmation_candles: pd.DataFrame,
     min_score: int = 3,
     market_regime: str = "HOLD",
+    *,
+    prepared: bool = False,
+    stop_atr: float = STOP_ATR,
+    tp1_atr: float = TP1_ATR,
+    tp2_atr: float = TP2_ATR,
 ) -> Signal | None:
     """Build a signal from closed 15m candles and closed 1h confirmation candles.
 
     Candles are supplied by the caller and are never re-requested here, so the
     same function serves live scanning and historical backtests without drift.
+    ``prepared=True`` means indicators were already added by the caller.
     """
 
-    entry = _latest(add_indicators(entry_candles))
-    confirm = _latest(add_indicators(confirmation_candles))
+    entry = _latest(entry_candles if prepared else add_indicators(entry_candles))
+    confirm = _latest(confirmation_candles if prepared else add_indicators(confirmation_candles))
 
     atr = float(entry["atr_14"])
     price = float(entry["close"])
@@ -92,12 +98,12 @@ def build_signal(
 
     if len(long_reasons) >= min_score and len(long_reasons) > len(short_reasons):
         side, reasons = Side.LONG, tuple(long_reasons)
-        stop = price - STOP_ATR * atr
-        tp1, tp2 = price + TP1_ATR * atr, price + TP2_ATR * atr
+        stop = price - stop_atr * atr
+        tp1, tp2 = price + tp1_atr * atr, price + tp2_atr * atr
     elif len(short_reasons) >= min_score and len(short_reasons) > len(long_reasons):
         side, reasons = Side.SHORT, tuple(short_reasons)
-        stop = price + STOP_ATR * atr
-        tp1, tp2 = price - TP1_ATR * atr, price - TP2_ATR * atr
+        stop = price + stop_atr * atr
+        tp1, tp2 = price - tp1_atr * atr, price - tp2_atr * atr
     else:
         return None
 

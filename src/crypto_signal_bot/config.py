@@ -25,8 +25,15 @@ class Settings(BaseSettings):
     confirmation_timeframe: str = "1h"
     regime_timeframe: str = "4h"
     max_candle_age_bars: int = 3
+    stop_atr_mult: float = 1.3
+    tp1_atr_mult: float = 2.0
+    tp2_atr_mult: float = 4.0
 
     block_counter_trend: bool = True
+    require_regime_alignment: bool = False
+    limit_entries: bool = True
+    entry_wait_bars: int = 4
+    bracket_exits: bool = True
     signal_cooldown_minutes: int = 180
     top_volume_limit: int = 20
     crypto_only_universe: bool = True

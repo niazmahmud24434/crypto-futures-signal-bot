@@ -18,7 +18,7 @@ Manual-only Binance Futures signal engine with Telegram alerts.
 - Long and short signals
 - Entry zone, stop-loss, TP1, TP2, R:R, and percentages
 - Telegram delivery through `@McMeshubot`
-- Crypto Time Machine decision-support module (in progress)
+- Crypto Time Machine decision-support module with causal replay on Binance history
 - Market regime header: `UP`, `HOLD`, or `DOWN` before every pair signal
 - Candlestick pattern double-checks, validated against Binance data rather than textbook claims
 - Manual execution only; no Binance API key or secret is required
